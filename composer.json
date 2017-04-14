@@ -1,0 +1,20 @@
+{
+    "name": "sbesselsen/twigit",
+    "description": "Convert PHP templates to Twig",
+    "type": "library",
+    "require": {
+        "nikic/php-parser": "^2.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "TwigIt\\": "src/"
+        }
+    },
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Sebastiaan Besselsen",
+            "email": "sebastiaan.besselsen@gmail.com"
+        }
+    ]
+}
