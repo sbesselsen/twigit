@@ -16,13 +16,23 @@ final class TwigFormatter implements TemplateFormatterInterface
     public function formatTemplate(Node $node)
     {
         $output = [];
-        if ($node instanceof Block) {
+        if ($node instanceof VariableIteratorBlock) {
+            $iteratedVariableName = $node->iteratedVariableName;
+            if ($node->scopeName !== null) {
+                $iteratedVariableName = $node->scopeName . '.' . $iteratedVariableName;
+            }
+            $output[] = '{% for ' . $node->localVariableName . ' in ' . $iteratedVariableName . ' %}';
             foreach ($node->nodes as $subNode) {
                 $output[] = $this->formatTemplate($subNode);
             }
-        } else if ($node instanceof HTML) {
+            $output[] = '{% endfor %}';
+        } elseif ($node instanceof Block) {
+            foreach ($node->nodes as $subNode) {
+                $output[] = $this->formatTemplate($subNode);
+            }
+        } elseif ($node instanceof HTML) {
             $output[] = $node->html;
-        } else if ($node instanceof VariableOutputBlock) {
+        } elseif ($node instanceof VariableOutputBlock) {
             $variableNameParts = array_filter([ $node->scopeName, $node->variableName ]);
             $variableName = implode('.', $variableNameParts);
 
@@ -31,8 +41,6 @@ final class TwigFormatter implements TemplateFormatterInterface
                 $suffix = ' | raw';
             }
             $output[] = '{ ' . $variableName . $suffix . ' }';
-        } else if ($node instanceof VariableIteratorBlock) {
-            // TODO
         }
         return implode('', $output);
     }

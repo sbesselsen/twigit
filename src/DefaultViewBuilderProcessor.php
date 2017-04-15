@@ -24,7 +24,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     private $currentTemplateBlock = null;
 
     /**
-     * @var array
+     * @var \TwigIt\DefaultViewBuilderProcessor_Scope[]
      */
     private $scopeStack = [];
 
@@ -37,6 +37,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
      * @var \PhpParser\PrettyPrinterAbstract
      */
     private $prettyPrinter;
+
+    /**
+     * @var array
+     */
+    private $usedVariables = [];
 
     /**
      * @param \PhpParser\PrettyPrinterAbstract $prettyPrinter
@@ -54,7 +59,15 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
      */
     public function process(array $nodes)
     {
-        $viewVariableName = $this->generateRootViewVariableName($nodes);
+        // First get all used variable names in the file.
+        $traverser = $this->createNodeTraverser();
+        $variableNameCollector = new DefaultViewBuilderProcessor_VariableCollector;
+        $traverser->addVisitor($variableNameCollector);
+        $traverser->traverse($nodes);
+
+        $this->usedVariables = $variableNameCollector->variableNames;
+
+        $viewVariableName = $this->generateUniquePHPVariableName('view');
 
         $view = new View();
 
@@ -63,13 +76,20 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         $view->templateRootNode = new Block();
         $this->templateBlockStack[] = $view->templateRootNode;
         $this->currentTemplateBlock = $view->templateRootNode;
-        $scopeCreateNodes = $this->pushScope($viewVariableName);
+        $scope = new DefaultViewBuilderProcessor_Scope($viewVariableName, null);
+        $this->pushScope($scope);
 
         try {
             $traverser = $this->createNodeTraverser();
             $traverser->addVisitor($this);
             $view->codeNodes = $traverser->traverse($nodes);
-            $view->codeNodes = array_merge($scopeCreateNodes, $view->codeNodes);
+            array_unshift(
+              $view->codeNodes,
+              new Node\Expr\Assign(
+                new Node\Expr\Variable($viewVariableName),
+                new Node\Expr\Array_([])
+              )
+            );
         } finally {
             // Clean up.
             $this->templateBlockStack = [];
@@ -113,14 +133,30 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             }
         }
 
-        // function: and handle ob_ etc.
         if ($node instanceof Node\Stmt\Foreach_) {
-            // $block = new VariableIteratorBlock();
+            $block = $this->generateForeachIteratorBlock($node);
+            if ($this->currentTemplateBlock instanceof VariableIteratorBlock) {
+                $block->scopeName = $this->currentTemplateBlock->localVariableName;
+            }
+
+            $variable = $this->generateUniquePHPVariableName(
+              'view_'.$block->localVariableName
+            );
+
+            $this->currentTemplateBlock->nodes[] = $block;
+            $this->templateBlockStack[] = $block;
+            $this->currentTemplateBlock = $block;
+            $node->setAttribute('twigit_block', $block);
+
+            $scope = new DefaultViewBuilderProcessor_Scope(
+              $variable,
+              $block->localVariableName
+            );
+            $this->pushScope($scope);
         }
 
         if ($node instanceof Node\Stmt\InlineHTML) {
             $this->currentTemplateBlock->nodes[] = new HTML($node->value);
-
             return NodeTraverser::DONT_TRAVERSE_CHILDREN;
         }
         if ($node instanceof Node\Stmt\Echo_) {
@@ -159,7 +195,8 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
             if (($escapableExpr instanceof Node\Scalar\DNumber) ||
               ($escapableExpr instanceof Node\Scalar\LNumber) ||
-              ($escapableExpr instanceof Node\Scalar\String_)) {
+              ($escapableExpr instanceof Node\Scalar\String_)
+            ) {
                 // Pass escaped strings directly into the output in escaped form.
                 $this->currentTemplateBlock->nodes[] = new HTML(
                   htmlspecialchars($escapableExpr->value)
@@ -168,7 +205,9 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             }
 
             if (($varExpr instanceof Node\Scalar) &&
-              !($varExpr instanceof Node\Scalar\MagicConst)) {
+              !($varExpr instanceof Node\Scalar\MagicConst) &&
+              isset ($escapableExpr->value)
+            ) {
                 // Pass consts directly into the output in escaped form.
                 $this->currentTemplateBlock->nodes[] = new HTML(
                   htmlspecialchars($escapableExpr->value)
@@ -182,12 +221,17 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             }
 
             // TODO: check if it's a simple expression and if so, don't go through the outputParameterExpressions.
-            $varName = $this->generateVariableName($varExpr);
+            $varName = $this->generateOutputVariableName($varExpr);
             $this->currentScope->values[$varName] = [];
             $outputParameterExpressions[$varName] = $varExpr;
 
+            $templateScopeName = null;
+            if ($this->currentTemplateBlock instanceof VariableIteratorBlock) {
+                $templateScopeName = $this->currentTemplateBlock->localVariableName;
+            }
+
             $this->currentTemplateBlock->nodes[] = new VariableOutputBlock(
-              $varName, $this->currentScope->variableName, $mode
+              $varName, $templateScopeName, $mode
             );
         }
 
@@ -219,6 +263,54 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         if ($node instanceof Node\Expr\Print_) {
             return NodeTraverser::REMOVE_NODE;
         }
+        if ($node->hasAttribute('twigit_block')) {
+            $scope = $this->popScope();
+            $templateBlock = $this->popTemplateBlock();
+
+            if (!$templateBlock instanceof VariableIteratorBlock) {
+                throw new \Exception("Unexpected template block");
+            }
+
+            // Declare the local variable at the start of the loop.
+            $declareLocalVariableExpr = new Node\Expr\Assign(
+              new Node\Expr\Variable($scope->variableName),
+              new Node\Expr\Array_([])
+            );
+
+            // And add it to the scope ref at the end.
+            $arrayPushExpr = new Node\Expr\Assign(
+              new Node\Expr\ArrayDimFetch(new Node\Expr\ArrayDimFetch(
+                new Node\Expr\Variable($this->currentScope->variableName),
+                new Node\Scalar\String_($templateBlock->iteratedVariableName)
+              ), null),
+              new Node\Expr\Variable($scope->variableName)
+            );
+
+            if ($node instanceof Node\Stmt\Foreach_) {
+                array_unshift($node->stmts, $declareLocalVariableExpr);
+                $node->stmts[] = $arrayPushExpr;
+            }
+
+            $nodes = [];
+
+            // Assign the view variable above the loop.
+            $nodes[] = new Node\Expr\AssignOp\Plus(
+              new Node\Expr\Variable($this->currentScope->variableName),
+              new Node\Expr\Array_(
+                [
+                  new Node\Expr\ArrayItem(
+                    new Node\Expr\Array_([]),
+                    new Node\Scalar\String_(
+                      $templateBlock->iteratedVariableName
+                    )
+                  ),
+                ]
+              )
+            );
+            $nodes[] = $node;
+
+            return $nodes;
+        }
 
         return null;
     }
@@ -240,20 +332,38 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     }
 
     /**
-     * @param string $name
-     * @return \PhpParser\Node[]
+     * @param DefaultViewBuilderProcessor_Scope $scope
      */
-    private function pushScope($name)
+    private function pushScope(DefaultViewBuilderProcessor_Scope $scope)
     {
-        $this->currentScope = new DefaultViewBuilderProcessor_Scope($name);
+        $this->currentScope = $scope;
         $this->scopeStack[] = $this->currentScope;
+    }
 
-        return [
-          new Node\Expr\Assign(
-            new Node\Expr\Variable($name),
-            new Node\Expr\Array_([])
-          ),
-        ];
+    /**
+     * @return DefaultViewBuilderProcessor_Scope
+     */
+    private function popScope()
+    {
+        $scope = $this->currentScope;
+        array_pop($this->scopeStack);
+        $this->currentScope = $this->scopeStack[count($this->scopeStack) - 1];
+
+        return $scope;
+    }
+
+    /**
+     * @return \TwigIt\Template\Node
+     */
+    private function popTemplateBlock()
+    {
+        $block = $this->currentTemplateBlock;
+        array_pop($this->templateBlockStack);
+        $this->currentTemplateBlock = $this->templateBlockStack[count(
+          $this->templateBlockStack
+        ) - 1];
+
+        return $block;
     }
 
     /**
@@ -454,26 +564,45 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     }
 
     /**
-     * @param \PhpParser\Node[] $nodes
+     * @param string $name
+     * @param bool $register
+     *      Immediately register the variable name for future use?
      * @return string
      */
-    private function generateRootViewVariableName(array $nodes)
+    private function generateUniquePHPVariableName($name, $register = true)
     {
-        // First get all used variable names in the file.
-        $traverser = $this->createNodeTraverser();
-        $variableNameCollector = new DefaultViewBuilderProcessor_VariableCollector(
-        );
-        $traverser->addVisitor($variableNameCollector);
-        $traverser->traverse($nodes);
-
-        $name = 'view';
         $prefix = '';
         $i = 0;
-        while (isset($variableNameCollector->variableNames[$prefix.$name])) {
+        while (isset($this->usedVariables[$prefix.$name])) {
             $prefix = str_repeat('_', ++$i);
         }
 
-        return $prefix.$name;
+        $name = $prefix.$name;
+
+        if ($register) {
+            $this->usedVariables[$name] = $name;
+        }
+
+        return $name;
+    }
+
+    /**
+     * Generate a descriptive variable name for this expression.
+     *
+     * @param \PhpParser\Node\Expr $expr
+     * @param bool $unique
+     *      Should we make sure the name is unique within the current scope?
+     * @return string
+     */
+    private function generateOutputVariableName(Node\Expr $expr, $unique = true)
+    {
+        $name = $this->generateVariableName($expr);
+
+        if ($unique) {
+            $name = self::addUniqueSuffix($name, $this->currentScope->values);
+        }
+
+        return $name;
     }
 
     /**
@@ -496,19 +625,57 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $name = '_'.$name;
         }
 
+        return $name;
+    }
+
+    /**
+     * Add a suffix to make the name unique among the specified current values.
+     *
+     * @param string $name
+     * @param array $currentValues
+     * @return string
+     */
+    private static function addUniqueSuffix($name, array $currentValues)
+    {
         $suffix = '';
         $i = 0;
-        while (isset($this->currentScope->values[$name.$suffix])) {
+        while (isset($currentValues[$name.$suffix])) {
             $i++;
             $suffix = '_'.$i;
         }
 
         return $name.$suffix;
     }
+
+    /**
+     * @param \PhpParser\Node\Stmt\Foreach_ $node
+     * @return \TwigIt\Template\VariableIteratorBlock
+     */
+    private function generateForeachIteratorBlock(Node\Stmt\Foreach_ $node)
+    {
+        $iteratedVariableName = $this->generateOutputVariableName($node->expr);
+        $localVariableName = null;
+
+        if ($node->valueVar instanceof Node\Expr\Variable) {
+            $localVariableName = $this->generateVariableName($node->valueVar);
+        } else {
+            $localVariableName = 'item';
+        }
+
+        return new VariableIteratorBlock(
+          $iteratedVariableName,
+          $localVariableName
+        );
+    }
 }
 
 class DefaultViewBuilderProcessor_Scope
 {
+    /**
+     * @var string
+     */
+    public $keyName;
+
     /**
      * @var string
      */
@@ -520,11 +687,13 @@ class DefaultViewBuilderProcessor_Scope
     public $values = [];
 
     /**
-     * @param string $name
+     * @param string $variableName
+     * @param string $keyName
      */
-    public function __construct($name)
+    public function __construct($variableName, $keyName)
     {
-        $this->variableName = $name;
+        $this->variableName = $variableName;
+        $this->keyName = $keyName;
     }
 }
 
