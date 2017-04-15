@@ -425,6 +425,9 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         $name = preg_replace('(^(.*\([^,\)]+)(.*)$)', '\\1', $name);
         $name = preg_replace('([^a-z0-9_]+)i', '_', $name);
         $name = trim($name, '_');
+        if (preg_match('(^[0-9])', $name)) {
+            $name = '_'.$name;
+        }
 
         $suffix = '';
         $i = 0;
