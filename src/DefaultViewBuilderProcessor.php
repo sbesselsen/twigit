@@ -135,7 +135,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
     /**
      * @param \PhpParser\Node\Expr[] $exprs
-     * @return \PhpParser\Node
+     * @return \PhpParser\Node|null
      */
     private function processOutputCall(array $exprs)
     {
@@ -149,25 +149,50 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             if ($expr instanceof Node\Scalar\String_) {
                 // Pass constant strings directly into the output. These are considered safe.
                 $this->currentTemplateBlock->nodes[] = new HTML($expr->value);
-            } else {
-                // Check if this expression is safe to HTML escape.
-                $varExpr = $expr;
-                $mode = VariableOutputBlock::MODE_RAW;
-                $escapableExpr = self::htmlEscapableExpression($expr);
-                if ($escapableExpr) {
-                    $varExpr = $escapableExpr;
-                    $mode = VariableOutputBlock::MODE_SAFE;
-                }
-
-                // TODO: check if it's a simple expression and if so, don't go through the outputParameterExpressions.
-                $varName = $this->generateVariableName($varExpr);
-                $this->currentScope->values[$varName] = [];
-                $outputParameterExpressions[$varName] = $varExpr;
-
-                $this->currentTemplateBlock->nodes[] = new VariableOutputBlock(
-                  $varName, $this->currentScope->variableName, $mode
-                );
+                continue;
             }
+
+            // Check if this expression is safe to HTML escape.
+            $varExpr = $expr;
+            $mode = VariableOutputBlock::MODE_RAW;
+            $escapableExpr = self::htmlEscapableExpression($expr);
+
+            if (($escapableExpr instanceof Node\Scalar\DNumber) ||
+              ($escapableExpr instanceof Node\Scalar\LNumber) ||
+              ($escapableExpr instanceof Node\Scalar\String_)) {
+                // Pass escaped strings directly into the output in escaped form.
+                $this->currentTemplateBlock->nodes[] = new HTML(
+                  htmlspecialchars($escapableExpr->value)
+                );
+                continue;
+            }
+
+            if (($varExpr instanceof Node\Scalar) &&
+              !($varExpr instanceof Node\Scalar\MagicConst)) {
+                // Pass consts directly into the output in escaped form.
+                $this->currentTemplateBlock->nodes[] = new HTML(
+                  htmlspecialchars($escapableExpr->value)
+                );
+                continue;
+            }
+
+            if ($escapableExpr) {
+                $varExpr = $escapableExpr;
+                $mode = VariableOutputBlock::MODE_SAFE;
+            }
+
+            // TODO: check if it's a simple expression and if so, don't go through the outputParameterExpressions.
+            $varName = $this->generateVariableName($varExpr);
+            $this->currentScope->values[$varName] = [];
+            $outputParameterExpressions[$varName] = $varExpr;
+
+            $this->currentTemplateBlock->nodes[] = new VariableOutputBlock(
+              $varName, $this->currentScope->variableName, $mode
+            );
+        }
+
+        if (!$outputParameterExpressions) {
+            return null;
         }
 
         $expressionData = self::arrayNodeForExpressions(
@@ -186,6 +211,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     public function leaveNode(Node $node)
     {
         if ($node instanceof Node\Stmt\InlineHTML) {
+            return NodeTraverser::REMOVE_NODE;
+        }
+        if ($node instanceof Node\Stmt\Echo_) {
+            return NodeTraverser::REMOVE_NODE;
+        }
+        if ($node instanceof Node\Expr\Print_) {
             return NodeTraverser::REMOVE_NODE;
         }
 
@@ -234,32 +265,68 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
      * =>
      * "x ", $a->x(), "y ", $q, " ", "aap"
      *
+     * htmlspecialchars("aap {$title} schaap")
+     * =>
+     * htmlspecialchars("aap "), htmlspecialchars($title), htmlspecialchars(" schaap")
+     *
      * @param \PhpParser\Node\Expr[] $exprs
      * @return \PhpParser\Node\Expr[]
      */
     private static function unwrapStringLikeExpressions(array $exprs)
     {
+        // These is just a grab bag of functions I could think of.
+        static $escapeFunctions = [
+          'htmlspecialchars',
+          'htmlentities',
+        ];
+
         $unwrappedExprs = [];
         while ($expr = array_shift($exprs)) {
             if ($expr instanceof Node\Expr\BinaryOp\Concat) {
+                // "a" . "b" => "a", "b"
                 array_unshift($exprs, $expr->right);
                 array_unshift($exprs, $expr->left);
-            } else {
-                if ($expr instanceof Node\Scalar\Encapsed) {
-                    foreach (array_reverse($expr->parts) as $part) {
-                        if ($part instanceof Node\Scalar\EncapsedStringPart) {
-                            array_unshift(
-                              $exprs,
-                              new Node\Scalar\String_($part->value)
-                            );
-                        } else {
-                            array_unshift($exprs, $part);
-                        }
+                continue;
+            }
+
+            if (($expr instanceof Node\Expr\FuncCall) &&
+              in_array((string)$expr->name, $escapeFunctions) &&
+              isset ($expr->args[0])
+            ) {
+                // htmlspecialchars(expr) => htmlspecialchars(expr[1]), htmlspecialchars(expr[2])
+                $subExpr = $expr->args[0]->value;
+                $unwrappedSubExprs = self::unwrapStringLikeExpressions(
+                  [$subExpr]
+                );
+                if (count($unwrappedSubExprs) > 1) {
+                    foreach (array_reverse(
+                               $unwrappedSubExprs
+                             ) as $unwrappedSubExpr) {
+                        $escapedUnwrappedSubExpr = new Node\Expr\FuncCall(
+                          $expr->name, [new Node\Arg($unwrappedSubExpr)]
+                        );
+                        array_unshift($exprs, $escapedUnwrappedSubExpr);
                     }
-                } else {
-                    $unwrappedExprs[] = $expr;
+                    continue;
                 }
             }
+
+            if ($expr instanceof Node\Scalar\Encapsed) {
+                // "a $b c {$d->x}" => "a ", $b, " c ", $d->x
+                foreach (array_reverse($expr->parts) as $part) {
+                    if ($part instanceof Node\Scalar\EncapsedStringPart) {
+                        array_unshift(
+                          $exprs,
+                          new Node\Scalar\String_($part->value)
+                        );
+                    } else {
+                        array_unshift($exprs, $part);
+                    }
+                }
+                continue;
+            }
+
+            $unwrappedExprs[] = $expr;
         }
 
         return $unwrappedExprs;
@@ -309,7 +376,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             return null;
         }
 
-        if ($expr instanceof Node\Scalar\MagicConst) {
+        if ($expr instanceof Node\Scalar) {
             // Scalars are all escapable.
             // TODO Not sure about MagicConst scalars, but they mostly contain paths and names so they seem escapable.
             return $expr;
