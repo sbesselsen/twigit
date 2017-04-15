@@ -157,6 +157,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
         if ($node instanceof Node\Stmt\InlineHTML) {
             $this->currentTemplateBlock->nodes[] = new HTML($node->value);
+
             return NodeTraverser::DONT_TRAVERSE_CHILDREN;
         }
         if ($node instanceof Node\Stmt\Echo_) {
@@ -279,10 +280,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
             // And add it to the scope ref at the end.
             $arrayPushExpr = new Node\Expr\Assign(
-              new Node\Expr\ArrayDimFetch(new Node\Expr\ArrayDimFetch(
-                new Node\Expr\Variable($this->currentScope->variableName),
-                new Node\Scalar\String_($templateBlock->iteratedVariableName)
-              ), null),
+              new Node\Expr\ArrayDimFetch(
+                new Node\Expr\ArrayDimFetch(
+                  new Node\Expr\Variable($this->currentScope->variableName),
+                  new Node\Scalar\String_($templateBlock->iteratedVariableName)
+                ), null
+              ),
               new Node\Expr\Variable($scope->variableName)
             );
 
