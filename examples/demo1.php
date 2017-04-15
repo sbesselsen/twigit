@@ -6,7 +6,7 @@
 <?php endforeach; ?>
 </head>
 <body>
-<h1><?php echo "Hello {$title} world" ?></h1>
+<h1><?php echo htmlspecialchars("Hello {$title} world") ?></h1>
 <?php if ($has_content) : ?>
 <div class="content">
   <?php foreach ($posts as $post) : ?>
@@ -17,6 +17,6 @@
 <?php endif; ?>
 </body>
 <?php
-echo 1, 2, 3;
+echo 1, 2, 3, "<b>" . htmlspecialchars("this is y: " . strlen($title)) . "</b>", 4;
 ?>
 </html>
