@@ -143,7 +143,6 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
               'view_'.$block->localVariableName
             );
 
-            $this->currentTemplateBlock->nodes[] = $block;
             $this->templateBlockStack[] = $block;
             $this->currentTemplateBlock = $block;
             $node->setAttribute('twigit_block', $block);
@@ -157,13 +156,15 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
         if ($node instanceof Node\Stmt\InlineHTML) {
             $this->currentTemplateBlock->nodes[] = new HTML($node->value);
-
+            $this->currentScope->hasOutput = true;
             return NodeTraverser::DONT_TRAVERSE_CHILDREN;
         }
         if ($node instanceof Node\Stmt\Echo_) {
+            $this->currentScope->hasOutput = true;
             return $this->processOutputCall($node->exprs);
         }
         if ($node instanceof Node\Expr\Print_) {
+            $this->currentScope->hasOutput = true;
             return $this->processOutputCall([$node->expr]);
         }
 
@@ -267,6 +268,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         if ($node->hasAttribute('twigit_block')) {
             $scope = $this->popScope();
             $templateBlock = $this->popTemplateBlock();
+
+            if (!$scope->hasOutput) {
+                return null;
+            }
+
+            $this->currentTemplateBlock->nodes[] = $templateBlock;
 
             if (!$templateBlock instanceof VariableIteratorBlock) {
                 throw new \Exception("Unexpected template block");
@@ -688,6 +695,11 @@ class DefaultViewBuilderProcessor_Scope
      * @var array
      */
     public $values = [];
+
+    /**
+     * @var bool
+     */
+    public $hasOutput = false;
 
     /**
      * @param string $variableName
