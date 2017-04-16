@@ -229,7 +229,6 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                 $mode = VariableOutputBlock::MODE_SAFE;
             }
 
-            // TODO: check if it's a simple expression and if so, don't go through the outputParameterExpressions.
             $varName = $this->generateOutputVariableName($varExpr);
             $this->currentScope->values[$varName] = [];
             $outputParameterExpressions[$varName] = $varExpr;
