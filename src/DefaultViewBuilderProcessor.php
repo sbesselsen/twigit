@@ -139,23 +139,14 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
         if ($node instanceof Node\Stmt\Foreach_) {
             $block = $this->generateForeachIteratorBlock($node);
-            if ($this->currentTemplateBlock instanceof VariableIteratorBlock) {
-                $block->scopeName = $this->currentTemplateBlock->localVariableName;
-            }
 
-            $variable = $this->generateUniquePHPVariableName(
-              'view_'.$block->localVariableName
-            );
+            return $this->processIteratorNode($node, $block);
+        }
 
-            $this->templateBlockStack[] = $block;
-            $this->currentTemplateBlock = $block;
-            $node->setAttribute('twigit_block', $block);
+        if ($node instanceof Node\Stmt\For_) {
+            $block = $this->generateForIteratorBlock($node);
 
-            $scope = new DefaultViewBuilderProcessor_Scope(
-              $variable,
-              $block->localVariableName
-            );
-            $this->pushScope($scope);
+            return $this->processIteratorNode($node, $block);
         }
 
         if ($node instanceof Node\Stmt\InlineHTML) {
@@ -174,6 +165,36 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
             return $this->processOutputCall([$node->expr]);
         }
+
+        return null;
+    }
+
+    /**
+     * @param \PhpParser\Node $node
+     * @param \TwigIt\Template\VariableIteratorBlock $block
+     * @return \PhpParser\Node|null
+     */
+    private function processIteratorNode(
+      Node $node,
+      VariableIteratorBlock $block
+    ) {
+        if ($this->currentTemplateBlock instanceof VariableIteratorBlock) {
+            $block->scopeName = $this->currentTemplateBlock->localVariableName;
+        }
+
+        $variable = $this->generateUniquePHPVariableName(
+          'view_'.$block->localVariableName
+        );
+
+        $this->templateBlockStack[] = $block;
+        $this->currentTemplateBlock = $block;
+        $node->setAttribute('twigit_block', $block);
+
+        $scope = new DefaultViewBuilderProcessor_Scope(
+          $variable,
+          $block->localVariableName
+        );
+        $this->pushScope($scope);
 
         return null;
     }
@@ -302,7 +323,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
               new Node\Expr\Variable($scope->variableName)
             );
 
-            if ($node instanceof Node\Stmt\Foreach_) {
+            if ((
+                ($node instanceof Node\Stmt\Foreach_) ||
+                ($node instanceof Node\Stmt\For_)
+              ) && isset($node->stmts)
+            ) {
                 array_unshift($node->stmts, $declareLocalVariableExpr);
                 $node->stmts[] = $arrayPushExpr;
 
@@ -610,18 +635,31 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     /**
      * Generate a descriptive variable name for this expression.
      *
-     * @param \PhpParser\Node\Expr $expr
+     * @param string|\PhpParser\Node\Expr $expr
      * @param bool $unique
      *      Should we make sure the name is unique within the current scope?
      * @return string
+     * @throws \Exception
      */
-    private function generateOutputVariableName(Node\Expr $expr, $unique = true)
+    private function generateOutputVariableName($expr, $unique = true)
     {
-        $name = $this->generateVariableName($expr);
+        if ($expr instanceof Node\Expr) {
+            $name = $this->generateVariableName($expr);
+        } elseif (is_string($expr)) {
+            $name = $expr;
+        } else {
+            throw new \Exception("Can't generate output variable for node");
+        }
         if ($this->currentTemplateBlock instanceof VariableIteratorBlock &&
-          $this->currentTemplateBlock->localVariableName) {
+          $this->currentTemplateBlock->localVariableName
+        ) {
             $loopVariable = $this->currentTemplateBlock->localVariableName;
-            if (substr($name, 0, strlen($loopVariable) + 1) === $loopVariable . '_') {
+            if (substr(
+                $name,
+                0,
+                strlen($loopVariable) + 1
+              ) === $loopVariable.'_'
+            ) {
                 $name = substr($name, strlen($loopVariable) + 1);
             }
         }
@@ -691,6 +729,29 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         } else {
             $localVariableName = 'item';
         }
+
+        return new VariableIteratorBlock(
+          $iteratedVariableName,
+          $localVariableName
+        );
+    }
+
+    /**
+     * @param \PhpParser\Node\Stmt\For_ $node
+     * @return \TwigIt\Template\VariableIteratorBlock
+     */
+    private function generateForIteratorBlock(Node\Stmt\For_ $node)
+    {
+        $localVariableName = 'item';
+        if (isset($node->init[0]) &&
+          $node->init[0] instanceof Node\Expr\Assign &&
+          $node->init[0]->var instanceof Node\Expr\Variable
+        ) {
+            $localVariableName = (string)$node->init[0]->var->name;
+        }
+        $iteratedVariableName = $this->generateOutputVariableName(
+          $localVariableName.'s'
+        );
 
         return new VariableIteratorBlock(
           $iteratedVariableName,
