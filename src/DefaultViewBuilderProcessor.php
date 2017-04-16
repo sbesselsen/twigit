@@ -618,6 +618,15 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     private function generateOutputVariableName(Node\Expr $expr, $unique = true)
     {
         $name = $this->generateVariableName($expr);
+        if ($this->currentTemplateBlock instanceof VariableIteratorBlock &&
+          $this->currentTemplateBlock->localVariableName) {
+            $loopVariable = $this->currentTemplateBlock->localVariableName;
+            if (substr($name, 0, strlen($loopVariable) + 1) === $loopVariable . '_') {
+                $name = substr($name, strlen($loopVariable) + 1);
+            }
+        }
+
+        $name = preg_replace('(array_|item_|row_|entry_)', '', $name);
 
         if ($unique) {
             $name = self::addUniqueSuffix($name, $this->currentScope->values);
