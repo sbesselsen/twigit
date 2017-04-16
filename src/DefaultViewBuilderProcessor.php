@@ -658,7 +658,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             }
         }
 
-        $name = preg_replace('(array_|item_|row_|entry_)', '', $name);
+        $name = preg_replace(
+          '(array_|item_|row_|entry_|abs_|intval_)',
+          '',
+          $name
+        );
 
         if ($unique) {
             $name = self::addUniqueSuffix($name, $this->currentScope->values);
@@ -678,6 +682,9 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         $php = $this->prettyPrinter->prettyPrintExpr($expr);
 
         $name = $php;
+
+        // Ignore casts in naming.
+        $name = preg_replace('(\((int|double|float|string)\))', '', $name);
 
         // Ignore everything after the first function argument.
         $name = preg_replace('(^(.*\([^,\)]+)(.*)$)', '\\1', $name);
