@@ -119,8 +119,6 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     public function enterNode(Node $node)
     {
         // TODO:
-        // for
-        // foreach
         // while
         // do
 
@@ -323,11 +321,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
               new Node\Expr\Variable($scope->variableName)
             );
 
-            if ((
-                ($node instanceof Node\Stmt\Foreach_) ||
-                ($node instanceof Node\Stmt\For_)
-              ) && isset($node->stmts)
-            ) {
+            if (isset($node->stmts)) {
                 array_unshift($node->stmts, $declareLocalVariableExpr);
                 $node->stmts[] = $arrayPushExpr;
 
