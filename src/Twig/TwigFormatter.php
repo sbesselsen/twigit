@@ -40,7 +40,7 @@ final class TwigFormatter implements TemplateFormatterInterface
             if ($node->mode === VariableOutputBlock::MODE_RAW) {
                 $suffix = ' | raw';
             }
-            $output[] = '{ ' . $variableName . $suffix . ' }';
+            $output[] = '{{ ' . $variableName . $suffix . ' }}';
         }
         return implode('', $output);
     }
