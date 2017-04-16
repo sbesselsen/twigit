@@ -90,6 +90,10 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                 new Node\Expr\Array_([])
               )
             );
+            $view->codeNodes = self::combineScopeAssignments(
+              $view->codeNodes,
+              $viewVariableName
+            );
         } finally {
             // Clean up.
             $this->templateBlockStack = [];
@@ -157,14 +161,17 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         if ($node instanceof Node\Stmt\InlineHTML) {
             $this->currentTemplateBlock->nodes[] = new HTML($node->value);
             $this->currentScope->hasOutput = true;
+
             return NodeTraverser::DONT_TRAVERSE_CHILDREN;
         }
         if ($node instanceof Node\Stmt\Echo_) {
             $this->currentScope->hasOutput = true;
+
             return $this->processOutputCall($node->exprs);
         }
         if ($node instanceof Node\Expr\Print_) {
             $this->currentScope->hasOutput = true;
+
             return $this->processOutputCall([$node->expr]);
         }
 
@@ -299,6 +306,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             if ($node instanceof Node\Stmt\Foreach_) {
                 array_unshift($node->stmts, $declareLocalVariableExpr);
                 $node->stmts[] = $arrayPushExpr;
+
+                $node->stmts = self::combineScopeAssignments(
+                  $node->stmts,
+                  $scope->variableName
+                );
             }
 
             $nodes = [];
@@ -676,6 +688,157 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
           $iteratedVariableName,
           $localVariableName
         );
+    }
+
+    /**
+     * Combine scope assignments, reducing lines of code.
+     *
+     * Example: it turns this:
+     *  $view_post = array();
+     *  $view_post += array('post_title' => $post->title);
+     *  $view_post += array('post_tags' => array());
+     *  $view['posts'][] = $view_post;
+     *
+     * Into this:
+     *  $view_post = array('post_title' => $post->title, 'post_tags' => array());
+     *  $view['posts'][] = $view_post;
+     *
+     * And then into this:
+     *  $view['posts'][] = array('post_title' => $post->title, 'post_tags' => array());
+     *
+     * @param \PhpParser\Node[] $nodes
+     * @param $variableName
+     * @return \PhpParser\Node[]
+     */
+    private static function combineScopeAssignments(array $nodes, $variableName)
+    {
+        // Combine assignments on multiple consecutive lines.
+        /** @var \PhpParser\Node\Expr\Array_ $prevAssignArray */
+        $prevAssignArray = null;
+        $newNodes = [];
+        foreach ($nodes as $node) {
+            if ($node instanceof Node\Expr\AssignOp\Plus &&
+              $node->var instanceof Node\Expr\Variable &&
+              $node->var->name === $variableName &&
+              $node->expr instanceof Node\Expr\Array_
+            ) {
+                if ($prevAssignArray === null) {
+                    $prevAssignArray = $node->expr;
+                    $newNodes[] = $node;
+                    continue;
+                }
+                // Combine assign ops.
+                $prevAssignArray->items = array_merge(
+                  $prevAssignArray->items,
+                  $node->expr->items
+                );
+                continue;
+            }
+            $prevAssignArray = null;
+            $newNodes[] = $node;
+        }
+
+        $nodes = $newNodes;
+
+        // Combine new empty array assignment with the first value assignments.
+        $newNodes = [];
+        $assignNodeIndex = null;
+        $hasValueAssignment = false;
+        foreach ($nodes as $i => $node) {
+            if ($node instanceof Node\Expr\Assign &&
+              $node->var instanceof Node\Expr\Variable &&
+              $node->var->name === $variableName &&
+              $node->expr instanceof Node\Expr\Array_ &&
+              count($node->expr->items) === 0
+            ) {
+                $assignNodeIndex = $i;
+            }
+            if ($node instanceof Node\Expr\AssignOp\Plus &&
+              $node->var instanceof Node\Expr\Variable &&
+              $node->var->name === $variableName &&
+              $node->expr instanceof Node\Expr\Array_ &&
+              !$hasValueAssignment
+            ) {
+                // This is the first value assignment.
+                $hasValueAssignment = true;
+                $node = new Node\Expr\Assign($node->var, $node->expr);
+            }
+            $newNodes[] = $node;
+        }
+
+        if ($hasValueAssignment && $assignNodeIndex !== null) {
+            array_splice($newNodes, $assignNodeIndex, 1);
+        }
+
+        $nodes = $newNodes;
+
+        $removeAssignNodeIndex = null;
+
+        // If a block contains only an assignment and an array push, combine them.
+        foreach ($nodes as $i => $node) {
+            if ($node instanceof Node\Expr\Assign &&
+              $node->var instanceof Node\Expr\ArrayDimFetch &&
+              $node->var->dim === null &&
+              $node->expr instanceof Node\Expr\Variable &&
+              $node->expr->name === $variableName &&
+              $i > 0
+            ) {
+                $prevNode = $nodes[$i - 1];
+                if ($prevNode instanceof Node\Expr\Assign &&
+                  $prevNode->var instanceof Node\Expr\Variable &&
+                  $prevNode->var->name === $variableName &&
+                  $prevNode->expr instanceof Node\Expr\Array_
+                ) {
+                    $node->expr = $prevNode->expr;
+                    $removeAssignNodeIndex = $i - 1;
+                }
+                break;
+            }
+        }
+        if ($removeAssignNodeIndex !== null) {
+            array_splice($nodes, $removeAssignNodeIndex, 1);
+        }
+
+        // If the variable only contains an empty array, remove the variable and push the empty array directly.
+        $newNodes = [];
+        $removeAssignNodeIndex = null;
+        $assignNodeIndex = null;
+        $hasValueAssignment = false;
+        foreach ($nodes as $i => $node) {
+            if ($node instanceof Node\Expr\Assign &&
+              $node->var instanceof Node\Expr\Variable &&
+              $node->var->name === $variableName &&
+              $node->expr instanceof Node\Expr\Array_ &&
+              count($node->expr->items) === 0
+            ) {
+                $assignNodeIndex = $i;
+            }
+            if ($node instanceof Node\Expr\AssignOp\Plus &&
+              $node->var instanceof Node\Expr\Variable &&
+              $node->var->name === $variableName &&
+              $node->expr instanceof Node\Expr\Array_
+            ) {
+                $hasValueAssignment = true;
+            }
+            if ($node instanceof Node\Expr\Assign &&
+              $node->var instanceof Node\Expr\ArrayDimFetch &&
+              $node->var->dim === null &&
+              $node->expr instanceof Node\Expr\Variable &&
+              $node->expr->name === $variableName
+            ) {
+                if (!$hasValueAssignment && $assignNodeIndex !== null) {
+                    $node->expr = new Node\Expr\Array_([]);
+                    $removeAssignNodeIndex = $assignNodeIndex;
+                }
+            }
+            $newNodes[] = $node;
+        }
+        if ($removeAssignNodeIndex !== null) {
+            array_splice($newNodes, $removeAssignNodeIndex, 1);
+        }
+        $nodes = $newNodes;
+
+        return $nodes;
     }
 }
 
