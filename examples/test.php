@@ -4,9 +4,9 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use PhpParser\ParserFactory;
 use TwigIt\DefaultViewBuilder;
 
-/** @var \TwigIt\ViewBuilder $processor */
 $prettyPrinter = new PhpParser\PrettyPrinter\Standard();
 
+/** @var \TwigIt\ViewBuilderInterface $processor */
 $processor = new DefaultViewBuilder($prettyPrinter);
 
 $parserFactory = new ParserFactory();
