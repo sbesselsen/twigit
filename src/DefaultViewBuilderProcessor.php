@@ -147,6 +147,18 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             return $this->processIteratorNode($node, $block);
         }
 
+        if ($node instanceof Node\Stmt\While_) {
+            $block = $this->generateWhileIteratorBlock($node);
+
+            return $this->processIteratorNode($node, $block);
+        }
+
+        if ($node instanceof Node\Stmt\Do_) {
+            $block = $this->generateDoIteratorBlock($node);
+
+            return $this->processIteratorNode($node, $block);
+        }
+
         if ($node instanceof Node\Stmt\InlineHTML) {
             $this->currentTemplateBlock->nodes[] = new HTML($node->value);
             $this->currentScope->hasOutput = true;
@@ -844,6 +856,49 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $localVariableName = $this->generateVariableName($node->valueVar);
         } else {
             $localVariableName = 'item';
+        }
+
+        return new VariableIteratorBlock(
+          $iteratedVariableName,
+          $localVariableName
+        );
+    }
+
+    /**
+     * @param \PhpParser\Node\Stmt\While_ $node
+     * @return \TwigIt\Template\VariableIteratorBlock
+     */
+    private function generateWhileIteratorBlock(Node\Stmt\While_ $node)
+    {
+        return $this->generateWhileOrDoIteratorBlock($node->cond);
+    }
+
+    /**
+     * @param \PhpParser\Node\Stmt\Do_ $node
+     * @return \TwigIt\Template\VariableIteratorBlock
+     */
+    private function generateDoIteratorBlock(Node\Stmt\Do_ $node)
+    {
+        return $this->generateWhileOrDoIteratorBlock($node->cond);
+    }
+
+    /**
+     * @param \PhpParser\Node\Expr $cond
+     * @return \TwigIt\Template\VariableIteratorBlock
+     */
+    private function generateWhileOrDoIteratorBlock(Node\Expr $cond)
+    {
+        $localVariableName = 'step';
+        $iteratedVariableName = 'steps';
+        if ($cond instanceof Node\Expr\Assign && $cond->var instanceof Node\Expr\Variable) {
+            $localVariableName = (string)$cond->var->name;
+            $iteratedVariableName = $this->generateOutputVariableName(
+              $localVariableName.'s'
+            );
+        } else {
+            $iteratedVariableName = $this->generateOutputVariableName(
+              $this->generateConditionVariableName($cond).'_steps'
+            );
         }
 
         return new VariableIteratorBlock(
