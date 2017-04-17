@@ -701,7 +701,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         $name = preg_replace('(\((int|double|float|string)\))', '', $name);
 
         // Ignore regex expressions.
-        $name = preg_replace('((?:p|e)reg_(replace|split|match|match_all)\s*\()s', '\\1(\'\',', $name);
+        $name = preg_replace(
+          '((?:p|e)reg_(replace|split|match|match_all)\s*\()s',
+          '\\1(\'\',',
+          $name
+        );
 
         // Ignore everything after the first function argument.
         $name = preg_replace('(^([^\(]*\([^,\)]+)(.*)$)s', '\\1', $name);
@@ -749,6 +753,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                 $output[] = $namePart;
             }
         }
+
         return implode('_', $output);
     }
 
