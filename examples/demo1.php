@@ -14,8 +14,9 @@ include(__DIR__ . '/demo1-data.php');
 $sum = 0;
 foreach ($xs as $x) {
   $sum += $x;
-  $x = true;
-  echo 'x';
+  if ($sum > 3) {
+      echo 'x';
+  }
 }
 ?>
 <?php if ($has_content) : ?>
