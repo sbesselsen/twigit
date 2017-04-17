@@ -22,31 +22,31 @@ final class TwigFormatter implements TemplateFormatterInterface
             if ($node->scopeName !== null) {
                 $iteratedVariableName = $node->scopeName . '.' . $iteratedVariableName;
             }
-            $output[] = '{% for ' . $node->localVariableName . ' in ' . $iteratedVariableName . ' %}';
+            $output[] = '{% for ' . $node->localVariableName . ' in ' . $iteratedVariableName . ' %}' . PHP_EOL;
             foreach ($node->nodes as $subNode) {
                 $output[] = $this->formatTemplate($subNode);
             }
-            $output[] = '{% endfor %}';
+            $output[] = '{% endfor %}' . PHP_EOL;
         } elseif($node instanceof ConditionalBlock) {
             $firstCase = true;
             $hasCases = false;
             $scopePrefix = $node->scopeName !== null ? $node->scopeName . '.' : '';
             foreach ($node->cases as $caseName => $caseBlock) {
                 if ($firstCase) {
-                    $output[] = '{% if ' . $scopePrefix . $caseName . ' %}';
+                    $output[] = '{% if ' . $scopePrefix . $caseName . ' %}' . PHP_EOL;
                     $firstCase = false;
                 } else {
-                    $output[] = '{% elseif ' . $scopePrefix . $caseName . ' %}';
+                    $output[] = '{% elseif ' . $scopePrefix . $caseName . ' %}' . PHP_EOL;
                 }
                 $output[] = $this->formatTemplate($caseBlock);
                 $hasCases = true;
             }
             if ($node->elseCase) {
-                $output[] = '{% else %}';
+                $output[] = '{% else %}' . PHP_EOL;
                 $output[] = $this->formatTemplate($node->elseCase);
             }
             if ($hasCases) {
-                $output[] = '{% endif %}';
+                $output[] = '{% endif %}' . PHP_EOL;
             }
         } elseif ($node instanceof Block) {
             foreach ($node->nodes as $subNode) {
