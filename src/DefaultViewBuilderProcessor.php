@@ -1160,6 +1160,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
               $node->var instanceof Node\Expr\Variable &&
               $node->var->name === $variableName &&
               $node->expr instanceof Node\Expr\Array_ &&
+              $assignNodeIndex !== null &&
               !$hasValueAssignment
             ) {
                 // This is the first value assignment.
@@ -1240,6 +1241,20 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             array_splice($newNodes, $removeAssignNodeIndex, 1);
         }
         $nodes = $newNodes;
+
+        // Descend into nested if/else structures.
+        foreach ($nodes as $node) {
+            if ($node instanceof Node\Stmt\If_) {
+                $node->stmts = self::combineScopeAssignments($node->stmts, $variableName);
+                foreach ($node->elseifs as $elseIf) {
+                    $elseIf->stmts = self::combineScopeAssignments($elseIf->stmts, $variableName);
+                }
+                if ($node->else) {
+                    $node->else->stmts = self::combineScopeAssignments($node->else->stmts, $variableName);
+                }
+
+            }
+        }
 
         return $nodes;
     }
