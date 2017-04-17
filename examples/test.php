@@ -1,4 +1,6 @@
 <?php
+error_reporting(E_ALL | E_STRICT);
+
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use PhpParser\ParserFactory;
@@ -28,6 +30,8 @@ $twigCode = $twigFormatter->formatTemplate($viewCode->templateRootNode);
 
 file_put_contents($alteredPhpFile, $alteredCode);
 file_put_contents(__DIR__ . '/' . $file . '.twig', $twigCode);
+
+error_reporting(E_ALL & ~E_NOTICE);
 
 echo $alteredCode;
 
