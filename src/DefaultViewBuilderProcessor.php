@@ -686,9 +686,18 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         // Ignore casts in naming.
         $name = preg_replace('(\((int|double|float|string)\))', '', $name);
 
+        // Ignore regex expressions.
+        $name = preg_replace('((?:p|e)reg_(replace|split|match|match_all)\s*\()s', '\\1(\'\',', $name);
+
         // Ignore everything after the first function argument.
-        $name = preg_replace('(^(.*\([^,\)]+)(.*)$)', '\\1', $name);
+        $name = preg_replace('(^([^\(]*\([^,\)]+)(.*)$)s', '\\1', $name);
+        $name = preg_replace('(->)', '_', $name);
+        $name = preg_replace('(\*)', '_times_', $name);
+        $name = preg_replace('(\/)', '_div_', $name);
+        $name = preg_replace('(-)', '_minus_', $name);
+        $name = preg_replace('(\+)', '_plus_', $name);
         $name = preg_replace('([^a-z0-9_]+)i', '_', $name);
+        $name = preg_replace('(_+)', '_', $name);
         $name = trim($name, '_');
         if (preg_match('(^[0-9])', $name)) {
             $name = '_'.$name;
@@ -707,7 +716,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     private static function addUniqueSuffix($name, array $currentValues)
     {
         $suffix = '';
-        $i = 0;
+        $i = 1;
         while (isset($currentValues[$name.$suffix])) {
             $i++;
             $suffix = '_'.$i;
