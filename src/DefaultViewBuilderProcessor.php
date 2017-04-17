@@ -166,6 +166,26 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $this->currentTemplateBlock = $block;
         }
 
+        if ($node instanceof Node\Stmt\Switch_) {
+            return $this->processSwitchNode($node);
+        }
+        if ($node instanceof Node\Stmt\Case_) {
+            $this->pushScope(clone $node->getAttribute('twigit_base_scope'));
+            if (!$this->currentTemplateBlock instanceof ConditionalBlock) {
+                throw new \LogicException('Invalid template stack for Case_');
+            }
+            $caseName = $node->getAttribute(
+              'twigit_casename'
+            );
+            if ($caseName) {
+                $block = $this->currentTemplateBlock->cases[$caseName];
+            } else {
+                $block = $this->currentTemplateBlock->elseCase;
+            }
+            $this->templateBlockStack[] = $block;
+            $this->currentTemplateBlock = $block;
+        }
+
         if ($node instanceof Node\Stmt\Foreach_) {
             $block = $this->generateForeachIteratorBlock($node);
 
@@ -258,6 +278,64 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $this->currentTemplateBlock = $caseBlock;
             break;
         }
+
+        // Create new fake scopes so we can reuse variable names in all branches of the if.
+        $this->pushScope(clone $this->currentScope);
+    }
+
+    /**
+     * @param \PhpParser\Node\Stmt\Switch_ $switch
+     * @throws \Exception
+     *      If there is a fallthrough case.
+     */
+    private function processSwitchNode(Node\Stmt\Switch_ $switch)
+    {
+        $switch->setAttribute('twigit_conditional_block', true);
+
+        $cases = $switch->cases;
+
+        $block = new ConditionalBlock();
+        $iteratorBlock = $this->currentVariableIteratorBlock();
+        if ($iteratorBlock) {
+            $block->scopeName = $iteratorBlock->localVariableName;
+        }
+
+        foreach ($cases as $case) {
+            if (!$case instanceof Node) {
+                continue;
+            }
+
+            $case->setAttribute('twigit_base_scope', $this->currentScope);
+
+            if (isset($case->cond) && $case->cond instanceof Node\Expr) {
+                if (!$case->stmts || !($case->stmts[count(
+                      $case->stmts
+                    ) - 1] instanceof Node\Stmt\Break_)
+                ) {
+                    throw new \Exception(
+                      'Switch/case with fallthrough is not supported'
+                    );
+                }
+
+                $cond = new Node\Expr\BinaryOp\Equal(
+                  $switch->cond, $case->cond
+                );
+                $caseName = $this->generateOutputVariableName(
+                  $this->generateConditionVariableName($cond)
+                );
+                $block->cases[$caseName] = new Block();
+                $case->setAttribute('twigit_casename', $caseName);
+                $case->setAttribute('twigit_conditional_block', true);
+            } else {
+                $block->elseCase = new Block();
+                $case->setAttribute('twigit_casename', false);
+                $case->setAttribute('twigit_conditional_block', true);
+            }
+        }
+
+        // Now push the conditional block.
+        $this->templateBlockStack[] = $block;
+        $this->currentTemplateBlock = $block;
 
         // Create new fake scopes so we can reuse variable names in all branches of the if.
         $this->pushScope(clone $this->currentScope);
@@ -489,17 +567,18 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $this->currentScope->hasOutput = $this->currentScope->hasOutput || $scope->hasOutput;
 
             $templateBlock = $this->popTemplateBlock();
-            if ($node instanceof Node\Stmt\If_) {
+            if ($node instanceof Node\Stmt\Switch_) {
+                $conditionalTemplateBlock = $templateBlock;
+            } elseif ($node instanceof Node\Stmt\If_) {
                 $conditionalTemplateBlock = $this->currentTemplateBlock;
+            } elseif($node instanceof Node\Stmt\Case_) {
+                $conditionalTemplateBlock = $this->templateBlockStack[count(
+                  $this->templateBlockStack
+                ) - 1];
             } else {
                 $conditionalTemplateBlock = $this->templateBlockStack[count(
                   $this->templateBlockStack
                 ) - 2];
-            }
-            if (!$templateBlock instanceof Block) {
-                throw new \LogicException(
-                  'Invalid template stack for conditional block: expect Block'
-                );
             }
             if (!$conditionalTemplateBlock instanceof ConditionalBlock) {
                 throw new \LogicException(
@@ -507,7 +586,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                 );
             }
 
-            $hasOutput = !!$templateBlock->nodes;
+            $hasOutput = $this->currentScope->hasOutput;
 
             $caseName = $node->getAttribute('twigit_casename');
             if ($hasOutput) {
@@ -544,31 +623,26 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                 // Pop one additional level off the template block stack.
                 $conditionalTemplateBlock = $this->popTemplateBlock();
                 if (!$conditionalTemplateBlock instanceof ConditionalBlock) {
-                    throw new \LogicException('Invalid template stack for If_: expect ConditionalBlock');
+                    throw new \LogicException(
+                      'Invalid template stack for If_: expect ConditionalBlock'
+                    );
                 }
                 $this->currentTemplateBlock->nodes[] = $conditionalTemplateBlock;
-                //$initItems = [];
                 if ($node->else !== null && !$node->else->stmts) {
                     $node->else = null;
                 }
-                /*
-                foreach ($conditionalTemplateBlock->cases as $caseName => $case) {
-                    $initItems[] = new Node\Expr\ArrayItem(
-                      new Node\Expr\ConstFetch(new Node\Name('false')),
-                      new Node\Scalar\String_($caseName)
+            }
+            if ($node instanceof Node\Stmt\Switch_) {
+                // Pop one additional level off the template block stack.
+                if (!$conditionalTemplateBlock instanceof ConditionalBlock) {
+                    throw new \LogicException(
+                      'Invalid template stack for Switch_: expect ConditionalBlock'
                     );
                 }
-                if ($initItems) {
-                    $nodes = [];
-                    $nodes[] = new Node\Expr\AssignOp\Plus(
-                      new Node\Expr\Variable($this->currentScope->variableName),
-                      new Node\Expr\Array_($initItems)
-                    );
-                    $nodes[] = $node;
-
-                    return $nodes;
+                $this->currentTemplateBlock->nodes[] = $conditionalTemplateBlock;
+                if ($node->else !== null && !$node->else->stmts) {
+                    $node->else = null;
                 }
-                */
             }
         }
 

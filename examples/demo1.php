@@ -1,6 +1,20 @@
 <?php
 include(__DIR__ . '/demo1-data.php');
 ?>
+<?php
+switch ($has_content) {
+    case true:
+        $y = 2;
+        echo "x";
+        break;
+    case 'aap':
+        $y = 1;
+        break;
+    default:
+        $y = 3;
+        echo "aap $y";
+}
+?>
 <html>
 <head>
 <title><?php echo htmlspecialchars($title); ?></title>
