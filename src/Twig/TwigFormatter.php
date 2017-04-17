@@ -2,6 +2,7 @@
 namespace TwigIt\Twig;
 
 use TwigIt\Template\Block;
+use TwigIt\Template\ConditionalBlock;
 use TwigIt\Template\HTML;
 use TwigIt\Template\Node;
 use TwigIt\Template\TemplateFormatterInterface;
@@ -26,6 +27,24 @@ final class TwigFormatter implements TemplateFormatterInterface
                 $output[] = $this->formatTemplate($subNode);
             }
             $output[] = '{% endfor %}';
+        } elseif($node instanceof ConditionalBlock) {
+            $firstCase = true;
+            $hasCases = false;
+            foreach ($node->cases as $caseName => $caseBlock) {
+                if ($firstCase) {
+                    $output[] = '{% if ' . $caseName . ' %}';
+                    $firstCase = false;
+                } else {
+                    $output[] = '{% elseif ' . $caseName . ' %}';
+                }
+                $output[] = $this->formatTemplate($caseBlock);
+                $hasCases = true;
+            }
+            if ($node->elseCase) {
+                $output[] = '{% else %}';
+                $output[] = $this->formatTemplate($node->elseCase);
+            }
+            $output[] = '{% endif %}';
         } elseif ($node instanceof Block) {
             foreach ($node->nodes as $subNode) {
                 $output[] = $this->formatTemplate($subNode);
