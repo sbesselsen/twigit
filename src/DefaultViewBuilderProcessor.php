@@ -7,6 +7,7 @@ use PhpParser\NodeVisitor;
 use PhpParser\NodeVisitorAbstract;
 use PhpParser\PrettyPrinterAbstract;
 use TwigIt\Template\Block;
+use TwigIt\Template\ConditionalBlock;
 use TwigIt\Template\HTML;
 use TwigIt\Template\VariableIteratorBlock;
 use TwigIt\Template\VariableOutputBlock;
@@ -119,9 +120,6 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     public function enterNode(Node $node)
     {
         // TODO:
-        // while
-        // do
-
         // if
         // switch
 
@@ -133,6 +131,38 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                   "Cannot process this file: it contains ob_...() functions."
                 );
             }
+        }
+
+        if ($node instanceof Node\Stmt\If_) {
+            return $this->processIfNode($node);
+        }
+
+        if ($node instanceof Node\Stmt\ElseIf_) {
+            $conditionalBlock = $this->templateBlockStack[count(
+              $this->templateBlockStack
+            ) - 2];
+            if (!$conditionalBlock instanceof ConditionalBlock) {
+                throw new \LogicException('Invalid template stack for ElseIf_');
+            }
+            $block = $conditionalBlock->cases[$node->getAttribute(
+              'twigit_casename'
+            )];
+            $this->templateBlockStack[] = $block;
+            $this->currentTemplateBlock = $block;
+        }
+        if ($node instanceof Node\Stmt\Else_) {
+            $conditionalBlock = $this->templateBlockStack[count(
+              $this->templateBlockStack
+            ) - 2];
+            if (!$conditionalBlock instanceof ConditionalBlock) {
+                throw new \LogicException('Invalid template stack for ElseIf_');
+            }
+            $block = $conditionalBlock->elseCase;
+            if (!$block) {
+                throw new \LogicException('Unexpected Else_ case');
+            }
+            $this->templateBlockStack[] = $block;
+            $this->currentTemplateBlock = $block;
         }
 
         if ($node instanceof Node\Stmt\Foreach_) {
@@ -180,6 +210,49 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     }
 
     /**
+     * @param \PhpParser\Node\Stmt\If_ $if
+     */
+    private function processIfNode(Node\Stmt\If_ $if)
+    {
+        $cases = [$if];
+        foreach ($if->elseifs as $elseIf) {
+            $cases[] = $elseIf;
+        }
+        if ($if->else) {
+            $cases[] = $if->else;
+        }
+
+        $block = new ConditionalBlock();
+        foreach ($cases as $case) {
+            if (!$case instanceof Node) {
+                continue;
+            }
+
+            if (isset($case->cond) && $case->cond instanceof Node\Expr) {
+                $caseName = $this->generateOutputVariableName(
+                  $this->generateConditionVariableName($case->cond)
+                );
+                $block->cases[$caseName] = new Block();
+                $case->setAttribute('twigit_casename', $caseName);
+                $case->setAttribute('twigit_conditional_block', true);
+            } else {
+                $block->elseCase = new Block();
+                $case->setAttribute('twigit_casename', false);
+                $case->setAttribute('twigit_conditional_block', true);
+            }
+        }
+
+        // Now push the conditional block.
+        $this->templateBlockStack[] = $block;
+        foreach ($block->cases as $caseBlock) {
+            // And push the if block over it.
+            $this->templateBlockStack[] = $caseBlock;
+            $this->currentTemplateBlock = $caseBlock;
+            break;
+        }
+    }
+
+    /**
      * @param \PhpParser\Node $node
      * @param \TwigIt\Template\VariableIteratorBlock $block
      * @return \PhpParser\Node|null
@@ -198,7 +271,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
         $this->templateBlockStack[] = $block;
         $this->currentTemplateBlock = $block;
-        $node->setAttribute('twigit_block', $block);
+        $node->setAttribute('twigit_iterator_block', true);
 
         $this->currentScope->values[$block->iteratedVariableName] = [];
 
@@ -304,7 +377,10 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         if ($node instanceof Node\Expr\Print_) {
             return NodeTraverser::REMOVE_NODE;
         }
-        if ($node->hasAttribute('twigit_block')) {
+        if ($node->hasAttribute('twigit_iterator_block') && $node->getAttribute(
+            'twigit_iterator_block'
+          )
+        ) {
             $scope = $this->popScope();
             $templateBlock = $this->popTemplateBlock();
 
@@ -364,6 +440,88 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $nodes[] = $node;
 
             return $nodes;
+        }
+
+        if ($node->hasAttribute(
+            'twigit_conditional_block'
+          ) && $node->getAttribute('twigit_conditional_block')
+        ) {
+            $templateBlock = $this->popTemplateBlock();
+            if ($node instanceof Node\Stmt\If_) {
+                $conditionalTemplateBlock = $this->currentTemplateBlock;
+            } else {
+                $conditionalTemplateBlock = $this->templateBlockStack[count(
+                  $this->templateBlockStack
+                ) - 2];
+            }
+            if (!$templateBlock instanceof Block) {
+                throw new \LogicException(
+                  'Invalid template stack for conditional block: expect Block'
+                );
+            }
+            if (!$conditionalTemplateBlock instanceof ConditionalBlock) {
+                throw new \LogicException(
+                  'Invalid template stack for conditional block: expect ConditionalBlock'
+                );
+            }
+
+            $hasOutput = !!$templateBlock->nodes;
+
+            $caseName = $node->getAttribute('twigit_casename');
+            if ($hasOutput) {
+                if (isset($node->stmts) && $caseName) {
+                    // Set the case here.
+                    array_unshift(
+                      $node->stmts,
+                      new Node\Expr\AssignOp\Plus(
+                        new Node\Expr\Variable(
+                          $this->currentScope->variableName
+                        ),
+                        new Node\Expr\Array_(
+                          [
+                            new Node\Expr\ArrayItem(
+                              new Node\Expr\ConstFetch(new Node\Name('true')),
+                              new Node\Scalar\String_($caseName)
+                            ),
+                          ]
+                        )
+                      )
+                    );
+                }
+            } else {
+                if ($caseName) {
+                    unset ($conditionalTemplateBlock->cases[$caseName]);
+                } else {
+                    $conditionalTemplateBlock->elseCase = null;
+                }
+            }
+
+            // For ifs, we need to pop up one more level.
+            if ($node instanceof Node\Stmt\If_) {
+                // Pop one additional level off the template block stack.
+                $conditionalTemplateBlock = $this->popTemplateBlock();
+                $this->currentTemplateBlock->nodes[] = $conditionalTemplateBlock;
+                $initItems = [];
+                if ($node->else !== null && !$node->else->stmts) {
+                    $node->else = null;
+                }
+                foreach ($conditionalTemplateBlock->cases as $caseName => $case) {
+                    $initItems[] = new Node\Expr\ArrayItem(
+                      new Node\Expr\ConstFetch(new Node\Name('false')),
+                      new Node\Scalar\String_($caseName)
+                    );
+                }
+                if ($initItems) {
+                    $nodes = [];
+                    $nodes[] = new Node\Expr\AssignOp\Plus(
+                      new Node\Expr\Variable($this->currentScope->variableName),
+                      new Node\Expr\Array_($initItems)
+                    );
+                    $nodes[] = $node;
+
+                    return $nodes;
+                }
+            }
         }
 
         return null;
