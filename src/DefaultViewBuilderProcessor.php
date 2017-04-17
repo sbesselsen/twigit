@@ -188,6 +188,8 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         $this->currentTemplateBlock = $block;
         $node->setAttribute('twigit_block', $block);
 
+        $this->currentScope->values[$block->iteratedVariableName] = [];
+
         $scope = new DefaultViewBuilderProcessor_Scope(
           $variable,
           $block->localVariableName
