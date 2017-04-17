@@ -16,5 +16,8 @@
             "name": "Sebastiaan Besselsen",
             "email": "sebastiaan.besselsen@gmail.com"
         }
-    ]
+    ],
+    "require-dev": {
+        "twig/twig": "^1.33"
+    }
 }
