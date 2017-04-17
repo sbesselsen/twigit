@@ -707,6 +707,110 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     }
 
     /**
+     * Generate a descriptive variable name for a condition.
+     *
+     * @param \PhpParser\Node\Expr $expr
+     * @return string
+     */
+    private function generateConditionVariableName(Node\Expr $expr)
+    {
+        $maxLength = 50;
+
+        $name = $this->generateDirtyConditionVariableName($expr);
+        $name = preg_replace('(_+)', '_', $name);
+
+        $length = -1;
+        $nameParts = explode('_', $name);
+        $output = [];
+        foreach ($nameParts as $namePart) {
+            $length += 1 + strlen($namePart);
+            if ($length > $maxLength) {
+                if ($output) {
+                    $output[] = 'etc';
+                } else {
+                    $output[] = 'condition';
+                }
+                break;
+            } else {
+                $output[] = $namePart;
+            }
+        }
+        return implode('_', $output);
+    }
+
+    /**
+     * Generate a descriptive variable name for a condition, without cleaning it up.
+     *
+     * @param \PhpParser\Node\Expr $expr
+     * @return string
+     */
+    private function generateDirtyConditionVariableName(Node\Expr $expr)
+    {
+        if ($expr instanceof Node\Expr\BinaryOp\BooleanAnd || $expr instanceof Node\Expr\BinaryOp\LogicalAnd) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_and_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+        if ($expr instanceof Node\Expr\BinaryOp\BooleanOr || $expr instanceof Node\Expr\BinaryOp\LogicalOr) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_or_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+        if ($expr instanceof Node\Expr\BooleanNot) {
+            return 'not_'.$this->generateDirtyConditionVariableName(
+              $expr->expr
+            );
+        }
+        if ($expr instanceof Node\Expr\Assign) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->var
+            ).'_from_'.$this->generateDirtyConditionVariableName($expr->expr);
+        }
+        if ($expr instanceof Node\Expr\BinaryOp\Smaller) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_lt_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+        if ($expr instanceof Node\Expr\BinaryOp\SmallerOrEqual) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_lte_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+        if ($expr instanceof Node\Expr\BinaryOp\Greater) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_gt_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+        if ($expr instanceof Node\Expr\BinaryOp\GreaterOrEqual) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_gte_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+        if ($expr instanceof Node\Expr\BinaryOp\Equal) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_eq_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+        if ($expr instanceof Node\Expr\BinaryOp\NotEqual) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_neq_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+        if ($expr instanceof Node\Expr\BinaryOp\Identical) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_eqq_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+        if ($expr instanceof Node\Expr\BinaryOp\NotIdentical) {
+            return $this->generateDirtyConditionVariableName(
+              $expr->left
+            ).'_neqq_'.$this->generateDirtyConditionVariableName($expr->right);
+        }
+
+        return $this->generateVariableName($expr);
+    }
+
+    /**
      * Add a suffix to make the name unique among the specified current values.
      *
      * @param string $name
