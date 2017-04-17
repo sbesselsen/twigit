@@ -419,8 +419,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                     $arrayPushExpr = new Node\Expr\Assign(
                       new Node\Expr\ArrayDimFetch(
                         new Node\Expr\ArrayDimFetch(
-                          new Node\Expr\Variable($this->currentScope->variableName),
-                          new Node\Scalar\String_($templateBlock->iteratedVariableName)
+                          new Node\Expr\Variable(
+                            $this->currentScope->variableName
+                          ),
+                          new Node\Scalar\String_(
+                            $templateBlock->iteratedVariableName
+                          )
                         ), null
                       ),
                       new Node\Expr\Variable($scope->variableName)
@@ -432,8 +436,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                     $emptyPushExpr = new Node\Expr\Assign(
                       new Node\Expr\ArrayDimFetch(
                         new Node\Expr\ArrayDimFetch(
-                          new Node\Expr\Variable($this->currentScope->variableName),
-                          new Node\Scalar\String_($templateBlock->iteratedVariableName)
+                          new Node\Expr\Variable(
+                            $this->currentScope->variableName
+                          ),
+                          new Node\Scalar\String_(
+                            $templateBlock->iteratedVariableName
+                          )
                         ), null
                       ),
                       new Node\Expr\Array_([])
@@ -474,7 +482,10 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         ) {
             // Propagate variables to parent scope.
             $scope = $this->popScope();
-            $this->currentScope->values = array_merge($this->currentScope->values, $scope->values);
+            $this->currentScope->values = array_merge(
+              $this->currentScope->values,
+              $scope->values
+            );
             $this->currentScope->hasOutput = $this->currentScope->hasOutput || $scope->hasOutput;
 
             $templateBlock = $this->popTemplateBlock();
@@ -1142,6 +1153,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                 return $templateBlock;
             }
         }
+
         return null;
     }
 
@@ -1258,12 +1270,21 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         // Descend into nested if/else structures.
         foreach ($nodes as $node) {
             if ($node instanceof Node\Stmt\If_) {
-                $node->stmts = self::combineScopeAssignments($node->stmts, $variableName);
+                $node->stmts = self::combineScopeAssignments(
+                  $node->stmts,
+                  $variableName
+                );
                 foreach ($node->elseifs as $elseIf) {
-                    $elseIf->stmts = self::combineScopeAssignments($elseIf->stmts, $variableName);
+                    $elseIf->stmts = self::combineScopeAssignments(
+                      $elseIf->stmts,
+                      $variableName
+                    );
                 }
                 if ($node->else) {
-                    $node->else->stmts = self::combineScopeAssignments($node->else->stmts, $variableName);
+                    $node->else->stmts = self::combineScopeAssignments(
+                      $node->else->stmts,
+                      $variableName
+                    );
                 }
 
             }
