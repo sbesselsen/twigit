@@ -56,10 +56,11 @@ $newOutput = $twig->render('index', $view);
 
 echo $newOutput;
 
+/*
 echo "\n\n-------------\n\n";
 
 var_dump($view);
-
+*/
 echo "\n\n-------------\n\n";
 
 var_dump($newOutput === $originalOutput);
