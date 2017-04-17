@@ -1225,6 +1225,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
               $node->var->name === $variableName &&
               $node->expr instanceof Node\Expr\Array_ &&
               $assignNodeIndex !== null &&
+              $assignNodeIndex === $i - 1 &&
               !$hasValueAssignment
             ) {
                 // This is the first value assignment.
