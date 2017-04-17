@@ -410,26 +410,39 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                 throw new \Exception("Unexpected template block");
             }
 
-            // Declare the local variable at the start of the loop.
-            $declareLocalVariableExpr = new Node\Expr\Assign(
-              new Node\Expr\Variable($scope->variableName),
-              new Node\Expr\Array_([])
-            );
-
-            // And add it to the scope ref at the end.
-            $arrayPushExpr = new Node\Expr\Assign(
-              new Node\Expr\ArrayDimFetch(
-                new Node\Expr\ArrayDimFetch(
-                  new Node\Expr\Variable($this->currentScope->variableName),
-                  new Node\Scalar\String_($templateBlock->iteratedVariableName)
-                ), null
-              ),
-              new Node\Expr\Variable($scope->variableName)
-            );
-
             if (isset($node->stmts)) {
-                array_unshift($node->stmts, $declareLocalVariableExpr);
-                $node->stmts[] = $arrayPushExpr;
+                if ($scope->values) {
+                    // Declare the local variable at the start of the loop.
+                    $declareLocalVariableExpr = new Node\Expr\Assign(
+                      new Node\Expr\Variable($scope->variableName),
+                      new Node\Expr\Array_([])
+                    );
+
+                    // And add it to the scope ref at the end.
+                    $arrayPushExpr = new Node\Expr\Assign(
+                      new Node\Expr\ArrayDimFetch(
+                        new Node\Expr\ArrayDimFetch(
+                          new Node\Expr\Variable($this->currentScope->variableName),
+                          new Node\Scalar\String_($templateBlock->iteratedVariableName)
+                        ), null
+                      ),
+                      new Node\Expr\Variable($scope->variableName)
+                    );
+
+                    array_unshift($node->stmts, $declareLocalVariableExpr);
+                    $node->stmts[] = $arrayPushExpr;
+                } else {
+                    $emptyPushExpr = new Node\Expr\Assign(
+                      new Node\Expr\ArrayDimFetch(
+                        new Node\Expr\ArrayDimFetch(
+                          new Node\Expr\Variable($this->currentScope->variableName),
+                          new Node\Scalar\String_($templateBlock->iteratedVariableName)
+                        ), null
+                      ),
+                      new Node\Expr\Array_([])
+                    );
+                    $node->stmts[] = $emptyPushExpr;
+                }
 
                 $node->stmts = self::combineScopeAssignments(
                   $node->stmts,
@@ -491,6 +504,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $caseName = $node->getAttribute('twigit_casename');
             if ($hasOutput) {
                 if (isset($node->stmts) && $caseName) {
+                    $this->currentScope->values[$caseName] = $caseName;
                     // Set the case here.
                     array_unshift(
                       $node->stmts,
@@ -1243,45 +1257,6 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         if ($removeAssignNodeIndex !== null) {
             array_splice($nodes, $removeAssignNodeIndex, 1);
         }
-
-        // If the variable only contains an empty array, remove the variable and push the empty array directly.
-        $newNodes = [];
-        $removeAssignNodeIndex = null;
-        $assignNodeIndex = null;
-        $hasValueAssignment = false;
-        foreach ($nodes as $i => $node) {
-            if ($node instanceof Node\Expr\Assign &&
-              $node->var instanceof Node\Expr\Variable &&
-              $node->var->name === $variableName &&
-              $node->expr instanceof Node\Expr\Array_ &&
-              count($node->expr->items) === 0
-            ) {
-                $assignNodeIndex = $i;
-            }
-            if ($node instanceof Node\Expr\AssignOp\Plus &&
-              $node->var instanceof Node\Expr\Variable &&
-              $node->var->name === $variableName &&
-              $node->expr instanceof Node\Expr\Array_
-            ) {
-                $hasValueAssignment = true;
-            }
-            if ($node instanceof Node\Expr\Assign &&
-              $node->var instanceof Node\Expr\ArrayDimFetch &&
-              $node->var->dim === null &&
-              $node->expr instanceof Node\Expr\Variable &&
-              $node->expr->name === $variableName
-            ) {
-                if (!$hasValueAssignment && $assignNodeIndex !== null) {
-                    $node->expr = new Node\Expr\Array_([]);
-                    $removeAssignNodeIndex = $assignNodeIndex;
-                }
-            }
-            $newNodes[] = $node;
-        }
-        if ($removeAssignNodeIndex !== null) {
-            array_splice($newNodes, $removeAssignNodeIndex, 1);
-        }
-        $nodes = $newNodes;
 
         // Descend into nested if/else structures.
         foreach ($nodes as $node) {
