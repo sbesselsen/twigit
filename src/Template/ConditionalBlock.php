@@ -14,6 +14,11 @@ final class ConditionalBlock extends Node
     public $elseCase;
 
     /**
+     * @var null|string
+     */
+    public $scopeName;
+
+    /**
      * @param Block[] $cases
      * @param Block|null $elseCase
      */

@@ -30,12 +30,13 @@ final class TwigFormatter implements TemplateFormatterInterface
         } elseif($node instanceof ConditionalBlock) {
             $firstCase = true;
             $hasCases = false;
+            $scopePrefix = $node->scopeName !== null ? $node->scopeName . '.' : '';
             foreach ($node->cases as $caseName => $caseBlock) {
                 if ($firstCase) {
-                    $output[] = '{% if ' . $caseName . ' %}';
+                    $output[] = '{% if ' . $scopePrefix . $caseName . ' %}';
                     $firstCase = false;
                 } else {
-                    $output[] = '{% elseif ' . $caseName . ' %}';
+                    $output[] = '{% elseif ' . $scopePrefix . $caseName . ' %}';
                 }
                 $output[] = $this->formatTemplate($caseBlock);
                 $hasCases = true;
@@ -44,7 +45,9 @@ final class TwigFormatter implements TemplateFormatterInterface
                 $output[] = '{% else %}';
                 $output[] = $this->formatTemplate($node->elseCase);
             }
-            $output[] = '{% endif %}';
+            if ($hasCases) {
+                $output[] = '{% endif %}';
+            }
         } elseif ($node instanceof Block) {
             foreach ($node->nodes as $subNode) {
                 $output[] = $this->formatTemplate($subNode);

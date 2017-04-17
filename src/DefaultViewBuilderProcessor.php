@@ -120,7 +120,6 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     public function enterNode(Node $node)
     {
         // TODO:
-        // if
         // switch
 
         if ($node instanceof Node\Expr\FuncCall) {
@@ -138,6 +137,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         }
 
         if ($node instanceof Node\Stmt\ElseIf_) {
+            $this->pushScope(clone $node->getAttribute('twigit_base_scope'));
             $conditionalBlock = $this->templateBlockStack[count(
               $this->templateBlockStack
             ) - 2];
@@ -149,8 +149,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             )];
             $this->templateBlockStack[] = $block;
             $this->currentTemplateBlock = $block;
+
+
+            $this->pushScope(clone $this->currentScope);
         }
         if ($node instanceof Node\Stmt\Else_) {
+            $this->pushScope(clone $node->getAttribute('twigit_base_scope'));
             $conditionalBlock = $this->templateBlockStack[count(
               $this->templateBlockStack
             ) - 2];
@@ -223,10 +227,17 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         }
 
         $block = new ConditionalBlock();
+        $iteratorBlock = $this->currentVariableIteratorBlock();
+        if ($iteratorBlock) {
+            $block->scopeName = $iteratorBlock->localVariableName;
+        }
+
         foreach ($cases as $case) {
             if (!$case instanceof Node) {
                 continue;
             }
+
+            $case->setAttribute('twigit_base_scope', $this->currentScope);
 
             if (isset($case->cond) && $case->cond instanceof Node\Expr) {
                 $caseName = $this->generateOutputVariableName(
@@ -250,6 +261,9 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $this->currentTemplateBlock = $caseBlock;
             break;
         }
+
+        // Create new fake scopes so we can reuse variable names in all branches of the if.
+        $this->pushScope(clone $this->currentScope);
     }
 
     /**
@@ -261,8 +275,9 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
       Node $node,
       VariableIteratorBlock $block
     ) {
-        if ($this->currentTemplateBlock instanceof VariableIteratorBlock) {
-            $block->scopeName = $this->currentTemplateBlock->localVariableName;
+        $iteratorBlock = $this->currentVariableIteratorBlock();
+        if ($iteratorBlock) {
+            $block->scopeName = $iteratorBlock->localVariableName;
         }
 
         $variable = $this->generateUniquePHPVariableName(
@@ -340,8 +355,9 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $outputParameterExpressions[$varName] = $varExpr;
 
             $templateScopeName = null;
-            if ($this->currentTemplateBlock instanceof VariableIteratorBlock) {
-                $templateScopeName = $this->currentTemplateBlock->localVariableName;
+            $iteratorBlock = $this->currentVariableIteratorBlock();
+            if ($iteratorBlock) {
+                $templateScopeName = $iteratorBlock->localVariableName;
             }
 
             $this->currentTemplateBlock->nodes[] = new VariableOutputBlock(
@@ -446,6 +462,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             'twigit_conditional_block'
           ) && $node->getAttribute('twigit_conditional_block')
         ) {
+            // Propagate variables to parent scope.
+            $scope = $this->popScope();
+            $this->currentScope->values = array_merge($this->currentScope->values, $scope->values);
+            $this->currentScope->hasOutput = $this->currentScope->hasOutput || $scope->hasOutput;
+
             $templateBlock = $this->popTemplateBlock();
             if ($node instanceof Node\Stmt\If_) {
                 $conditionalTemplateBlock = $this->currentTemplateBlock;
@@ -500,11 +521,15 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             if ($node instanceof Node\Stmt\If_) {
                 // Pop one additional level off the template block stack.
                 $conditionalTemplateBlock = $this->popTemplateBlock();
+                if (!$conditionalTemplateBlock instanceof ConditionalBlock) {
+                    throw new \LogicException('Invalid template stack for If_: expect ConditionalBlock');
+                }
                 $this->currentTemplateBlock->nodes[] = $conditionalTemplateBlock;
-                $initItems = [];
+                //$initItems = [];
                 if ($node->else !== null && !$node->else->stmts) {
                     $node->else = null;
                 }
+                /*
                 foreach ($conditionalTemplateBlock->cases as $caseName => $case) {
                     $initItems[] = new Node\Expr\ArrayItem(
                       new Node\Expr\ConstFetch(new Node\Name('false')),
@@ -521,6 +546,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
                     return $nodes;
                 }
+                */
             }
         }
 
@@ -816,10 +842,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         } else {
             throw new \Exception("Can't generate output variable for node");
         }
-        if ($this->currentTemplateBlock instanceof VariableIteratorBlock &&
-          $this->currentTemplateBlock->localVariableName
+        // Get the current iterator block.
+        $iteratorBlock = $this->currentVariableIteratorBlock();
+        if ($iteratorBlock && $iteratorBlock->localVariableName
         ) {
-            $loopVariable = $this->currentTemplateBlock->localVariableName;
+            $loopVariable = $iteratorBlock->localVariableName;
             if (substr(
                 $name,
                 0,
@@ -1091,6 +1118,20 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
           $iteratedVariableName,
           $localVariableName
         );
+    }
+
+    /**
+     * @return \TwigIt\Template\VariableIteratorBlock|null
+     */
+    private function currentVariableIteratorBlock()
+    {
+        for ($i = count($this->templateBlockStack) - 1; $i >= 0; $i--) {
+            $templateBlock = $this->templateBlockStack[$i];
+            if ($templateBlock instanceof VariableIteratorBlock) {
+                return $templateBlock;
+            }
+        }
+        return null;
     }
 
     /**
