@@ -149,9 +149,6 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             )];
             $this->templateBlockStack[] = $block;
             $this->currentTemplateBlock = $block;
-
-
-            $this->pushScope(clone $this->currentScope);
         }
         if ($node instanceof Node\Stmt\Else_) {
             $this->pushScope(clone $node->getAttribute('twigit_base_scope'));

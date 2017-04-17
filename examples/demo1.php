@@ -38,7 +38,7 @@ foreach ($xs as $x) {
   <?php endforeach; ?>
 </div>
 <?php elseif($has_other_content) : ?>
-test
+test<?php echo strlen($title) + 10 ?>
 <?php else : ?>
 test2
 <?php endif ?>
