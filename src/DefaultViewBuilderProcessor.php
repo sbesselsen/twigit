@@ -978,6 +978,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
         $name = $php;
 
+        // isset(...) ? x : ... => x
+        if (preg_match('(^isset\s*\(.*\)\s*\?(.*?)\s*:)s', $name, $match)) {
+            $name = $match[1];
+        }
+
         // Ignore casts in naming.
         $name = preg_replace('(\((int|double|float|string)\))', '', $name);
 
@@ -996,8 +1001,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         $name = preg_replace('(-)', '_minus_', $name);
         $name = preg_replace('(\+)', '_plus_', $name);
         $name = preg_replace('([^a-z0-9_]+)i', '_', $name);
+        $name = preg_replace('((POST|GET|REQUEST|SERVER|SESSION|ENV)_)', '', $name);
         $name = preg_replace('(_+)', '_', $name);
         $name = trim($name, '_');
+
+        $name = preg_replace('(^isset_(.*)$)', 'have_\\1', $name);
+
         if (preg_match('(^[0-9])', $name)) {
             $name = '_'.$name;
         }
