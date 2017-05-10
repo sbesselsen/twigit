@@ -643,9 +643,6 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                     );
                 }
                 $this->currentTemplateBlock->nodes[] = $conditionalTemplateBlock;
-                if ($node->else !== null && !$node->else->stmts) {
-                    $node->else = null;
-                }
             }
         }
 
