@@ -987,6 +987,17 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         $name = preg_replace('((POST|GET|REQUEST|SERVER|SESSION|ENV)_)', '',
           $name);
         $name = preg_replace('(_+)', '_', $name);
+
+        // fetchRow => row, getFormToken => formToken
+        if (preg_match_all('((get|fetch|load)([a-zA-Z])([a-zA-Z]?))', $name, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                list (, , $initial, $next) = $match;
+                if (strtolower($initial) !== $initial && (!$next || strtoupper($next) !== $next)) {
+                    $initial = strtolower($initial);
+                }
+                $name = str_replace($match[0], $initial . $next, $name);
+            }
+        }
         $name = trim($name, '_');
 
         $name = preg_replace('(^isset_(.*)$)', 'have_\\1', $name);
