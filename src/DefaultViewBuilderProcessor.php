@@ -362,7 +362,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         }
 
         $variable = $this->generateUniquePHPVariableName(
-          'view_'.$block->localVariableName
+          'view_' . $block->localVariableName
         );
 
         $this->templateBlockStack[] = $block;
@@ -890,11 +890,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     {
         $prefix = '';
         $i = 0;
-        while (isset($this->usedVariables[$prefix.$name])) {
+        while (isset($this->usedVariables[$prefix . $name])) {
             $prefix = str_repeat('_', ++$i);
         }
 
-        $name = $prefix.$name;
+        $name = $prefix . $name;
 
         if ($register) {
             $this->usedVariables[$name] = $name;
@@ -930,7 +930,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                 $name,
                 0,
                 strlen($loopVariable) + 1
-              ) === $loopVariable.'_'
+              ) === $loopVariable . '_'
             ) {
                 $name = substr($name, strlen($loopVariable) + 1);
             }
@@ -984,14 +984,15 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         $name = preg_replace('(-)', '_minus_', $name);
         $name = preg_replace('(\+)', '_plus_', $name);
         $name = preg_replace('([^a-z0-9_]+)i', '_', $name);
-        $name = preg_replace('((POST|GET|REQUEST|SERVER|SESSION|ENV)_)', '', $name);
+        $name = preg_replace('((POST|GET|REQUEST|SERVER|SESSION|ENV)_)', '',
+          $name);
         $name = preg_replace('(_+)', '_', $name);
         $name = trim($name, '_');
 
         $name = preg_replace('(^isset_(.*)$)', 'have_\\1', $name);
 
         if (preg_match('(^[0-9])', $name)) {
-            $name = '_'.$name;
+            $name = '_' . $name;
         }
 
         return $name;
@@ -1041,62 +1042,62 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         if ($expr instanceof Node\Expr\BinaryOp\BooleanAnd || $expr instanceof Node\Expr\BinaryOp\LogicalAnd) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_and_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_and_' . $this->generateDirtyConditionVariableName($expr->right);
         }
         if ($expr instanceof Node\Expr\BinaryOp\BooleanOr || $expr instanceof Node\Expr\BinaryOp\LogicalOr) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_or_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_or_' . $this->generateDirtyConditionVariableName($expr->right);
         }
         if ($expr instanceof Node\Expr\BooleanNot) {
-            return 'not_'.$this->generateDirtyConditionVariableName(
+            return 'not_' . $this->generateDirtyConditionVariableName(
               $expr->expr
             );
         }
         if ($expr instanceof Node\Expr\Assign) {
             return $this->generateDirtyConditionVariableName(
               $expr->var
-            ).'_from_'.$this->generateDirtyConditionVariableName($expr->expr);
+            ) . '_from_' . $this->generateDirtyConditionVariableName($expr->expr);
         }
         if ($expr instanceof Node\Expr\BinaryOp\Smaller) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_lt_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_lt_' . $this->generateDirtyConditionVariableName($expr->right);
         }
         if ($expr instanceof Node\Expr\BinaryOp\SmallerOrEqual) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_lte_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_lte_' . $this->generateDirtyConditionVariableName($expr->right);
         }
         if ($expr instanceof Node\Expr\BinaryOp\Greater) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_gt_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_gt_' . $this->generateDirtyConditionVariableName($expr->right);
         }
         if ($expr instanceof Node\Expr\BinaryOp\GreaterOrEqual) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_gte_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_gte_' . $this->generateDirtyConditionVariableName($expr->right);
         }
         if ($expr instanceof Node\Expr\BinaryOp\Equal) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_eq_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_eq_' . $this->generateDirtyConditionVariableName($expr->right);
         }
         if ($expr instanceof Node\Expr\BinaryOp\NotEqual) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_neq_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_neq_' . $this->generateDirtyConditionVariableName($expr->right);
         }
         if ($expr instanceof Node\Expr\BinaryOp\Identical) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_eqq_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_eqq_' . $this->generateDirtyConditionVariableName($expr->right);
         }
         if ($expr instanceof Node\Expr\BinaryOp\NotIdentical) {
             return $this->generateDirtyConditionVariableName(
               $expr->left
-            ).'_neqq_'.$this->generateDirtyConditionVariableName($expr->right);
+            ) . '_neqq_' . $this->generateDirtyConditionVariableName($expr->right);
         }
 
         return $this->generateVariableName($expr);
@@ -1113,12 +1114,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
     {
         $suffix = '';
         $i = 1;
-        while (isset($currentValues[$name.$suffix])) {
+        while (isset($currentValues[$name . $suffix])) {
             $i++;
-            $suffix = '_'.$i;
+            $suffix = '_' . $i;
         }
 
-        return $name.$suffix;
+        return $name . $suffix;
     }
 
     /**
@@ -1171,11 +1172,11 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         if ($cond instanceof Node\Expr\Assign && $cond->var instanceof Node\Expr\Variable) {
             $localVariableName = (string)$cond->var->name;
             $iteratedVariableName = $this->generateOutputVariableName(
-              $localVariableName.'s'
+              $localVariableName . 's'
             );
         } else {
             $iteratedVariableName = $this->generateOutputVariableName(
-              $this->generateConditionVariableName($cond).'_steps'
+              $this->generateConditionVariableName($cond) . '_steps'
             );
         }
 
@@ -1199,7 +1200,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $localVariableName = (string)$node->init[0]->var->name;
         }
         $iteratedVariableName = $this->generateOutputVariableName(
-          $localVariableName.'s'
+          $localVariableName . 's'
         );
 
         return new VariableIteratorBlock(
