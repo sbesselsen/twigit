@@ -219,12 +219,18 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         if ($node instanceof Node\Stmt\Echo_) {
             $this->currentScope->hasOutput = true;
 
-            return $this->processOutputCall($node->exprs);
+            $replacements = $this->processOutputCall($node->exprs);
+            if ($replacements) {
+                $node->setAttribute('twigit_replacements', $replacements);
+            }
         }
         if ($node instanceof Node\Expr\Print_) {
             $this->currentScope->hasOutput = true;
 
-            return $this->processOutputCall([$node->expr]);
+            $replacements = $this->processOutputCall([$node->expr]);
+            if ($replacements) {
+                $node->setAttribute('twigit_replacements', $replacements);
+            }
         }
 
         return null;
@@ -376,7 +382,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
 
     /**
      * @param \PhpParser\Node\Expr[] $exprs
-     * @return \PhpParser\Node|null
+     * @return \PhpParser\Node[]|null
      */
     private function processOutputCall(array $exprs)
     {
@@ -444,14 +450,20 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             return null;
         }
 
-        $expressionData = self::arrayNodeForExpressions(
-          $outputParameterExpressions
-        );
         $scopeVariable = new Node\Expr\Variable(
           $this->currentScope->variableName
         );
 
-        return new Node\Expr\AssignOp\Plus($scopeVariable, $expressionData);
+        $output = [];
+        foreach ($outputParameterExpressions as $name => $expr) {
+            $output[] = new Node\Expr\Assign(
+              new Node\Expr\ArrayDimFetch($scopeVariable,
+                new Node\Scalar\String_($name)),
+              $expr
+            );
+        }
+
+        return $output;
     }
 
     /**
@@ -459,6 +471,9 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
      */
     public function leaveNode(Node $node)
     {
+        if ($node->hasAttribute('twigit_replacements')) {
+            return $node->getAttribute('twigit_replacements');
+        }
         if ($node instanceof Node\Stmt\InlineHTML) {
             return NodeTraverser::REMOVE_NODE;
         }
@@ -536,18 +551,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
             $nodes = [];
 
             // Assign the view variable above the loop.
-            $nodes[] = new Node\Expr\AssignOp\Plus(
-              new Node\Expr\Variable($this->currentScope->variableName),
-              new Node\Expr\Array_(
-                [
-                  new Node\Expr\ArrayItem(
-                    new Node\Expr\Array_([]),
-                    new Node\Scalar\String_(
-                      $templateBlock->iteratedVariableName
-                    )
-                  ),
-                ]
-              )
+            $nodes[] = new Node\Expr\Assign(
+              new Node\Expr\ArrayDimFetch(
+                new Node\Expr\Variable($this->currentScope->variableName),
+                new Node\Scalar\String_($templateBlock->iteratedVariableName)
+              ),
+              new Node\Expr\Array_([])
             );
             $nodes[] = $node;
 
@@ -571,7 +580,7 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                 $conditionalTemplateBlock = $templateBlock;
             } elseif ($node instanceof Node\Stmt\If_) {
                 $conditionalTemplateBlock = $this->currentTemplateBlock;
-            } elseif($node instanceof Node\Stmt\Case_) {
+            } elseif ($node instanceof Node\Stmt\Case_) {
                 $conditionalTemplateBlock = $this->templateBlockStack[count(
                   $this->templateBlockStack
                 ) - 1];
@@ -595,18 +604,12 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
                     // Set the case here.
                     array_unshift(
                       $node->stmts,
-                      new Node\Expr\AssignOp\Plus(
-                        new Node\Expr\Variable(
-                          $this->currentScope->variableName
+                      new Node\Expr\Assign(
+                        new Node\Expr\ArrayDimFetch(
+                          new Node\Expr\Variable($this->currentScope->variableName),
+                          new Node\Scalar\String_($caseName)
                         ),
-                        new Node\Expr\Array_(
-                          [
-                            new Node\Expr\ArrayItem(
-                              new Node\Expr\ConstFetch(new Node\Name('true')),
-                              new Node\Scalar\String_($caseName)
-                            ),
-                          ]
-                        )
+                        new Node\Expr\ConstFetch(new Node\Name('true'))
                       )
                     );
                 }
@@ -878,23 +881,6 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
         }
 
         return null;
-    }
-
-    /**
-     * @param \PhpParser\Node\Expr[] $exprs
-     * @return \PhpParser\Node\Expr\Array_
-     */
-    private static function arrayNodeForExpressions(array $exprs)
-    {
-        $items = [];
-        foreach ($exprs as $name => $expr) {
-            $items[] = new Node\Expr\ArrayItem(
-              $expr,
-              new Node\Scalar\String_($name)
-            );
-        }
-
-        return new Node\Expr\Array_($items);
     }
 
     /**
@@ -1262,93 +1248,35 @@ final class DefaultViewBuilderProcessor implements NodeVisitor
      */
     private static function combineScopeAssignments(array $nodes, $variableName)
     {
-        // Combine assignments on multiple consecutive lines.
-        /** @var \PhpParser\Node\Expr\Array_ $prevAssignArray */
-        $prevAssignArray = null;
-        $newNodes = [];
-        foreach ($nodes as $node) {
-            if ($node instanceof Node\Expr\AssignOp\Plus &&
-              $node->var instanceof Node\Expr\Variable &&
-              $node->var->name === $variableName &&
-              $node->expr instanceof Node\Expr\Array_
-            ) {
-                if ($prevAssignArray === null) {
-                    $prevAssignArray = $node->expr;
-                    $newNodes[] = $node;
-                    continue;
-                }
-                // Combine assign ops.
-                $prevAssignArray->items = array_merge(
-                  $prevAssignArray->items,
-                  $node->expr->items
-                );
-                continue;
-            }
-            $prevAssignArray = null;
-            $newNodes[] = $node;
-        }
-
-        $nodes = $newNodes;
-
-        // Combine new empty array assignment with the first value assignments.
-        $newNodes = [];
-        $assignNodeIndex = null;
-        $hasValueAssignment = false;
-        foreach ($nodes as $i => $node) {
-            if ($node instanceof Node\Expr\Assign &&
-              $node->var instanceof Node\Expr\Variable &&
-              $node->var->name === $variableName &&
-              $node->expr instanceof Node\Expr\Array_ &&
-              count($node->expr->items) === 0
-            ) {
-                $assignNodeIndex = $i;
-            }
-            if ($node instanceof Node\Expr\AssignOp\Plus &&
-              $node->var instanceof Node\Expr\Variable &&
-              $node->var->name === $variableName &&
-              $node->expr instanceof Node\Expr\Array_ &&
-              $assignNodeIndex !== null &&
-              $assignNodeIndex === $i - 1 &&
-              !$hasValueAssignment
-            ) {
-                // This is the first value assignment.
-                $hasValueAssignment = true;
-                $node = new Node\Expr\Assign($node->var, $node->expr);
-            }
-            $newNodes[] = $node;
-        }
-
-        if ($hasValueAssignment && $assignNodeIndex !== null) {
-            array_splice($newNodes, $assignNodeIndex, 1);
-        }
-
-        $nodes = $newNodes;
-
-        $removeAssignNodeIndex = null;
-
-        // If a block contains only an assignment and an array push, combine them.
-        foreach ($nodes as $i => $node) {
-            if ($node instanceof Node\Expr\Assign &&
-              $node->var instanceof Node\Expr\ArrayDimFetch &&
-              $node->var->dim === null &&
-              $node->expr instanceof Node\Expr\Variable &&
-              $node->expr->name === $variableName &&
-              $i > 0
-            ) {
-                $prevNode = $nodes[$i - 1];
-                if ($prevNode instanceof Node\Expr\Assign &&
-                  $prevNode->var instanceof Node\Expr\Variable &&
-                  $prevNode->var->name === $variableName &&
-                  $prevNode->expr instanceof Node\Expr\Array_
-                ) {
-                    $node->expr = $prevNode->expr;
-                    $removeAssignNodeIndex = $i - 1;
-                }
-                break;
-            }
-        }
-        if ($removeAssignNodeIndex !== null) {
-            array_splice($nodes, $removeAssignNodeIndex, 1);
+        // If a block contains only an array create, an assignment and an array push, combine them.
+        if (count($nodes) === 3 &&
+          $nodes[0] instanceof Node\Expr\Assign &&
+          $nodes[0]->var instanceof Node\Expr\Variable &&
+          $nodes[0]->var->name === $variableName &&
+          $nodes[1] instanceof Node\Expr\Assign &&
+          $nodes[1]->var instanceof Node\Expr\ArrayDimFetch &&
+          $nodes[1]->var->var instanceof Node\Expr\Variable &&
+          $nodes[1]->var->var->name === $variableName &&
+          $nodes[1]->var->dim instanceof Node\Scalar\String_ &&
+          $nodes[2] instanceof Node\Expr\Assign &&
+          $nodes[2]->var instanceof Node\Expr\ArrayDimFetch &&
+          $nodes[2]->var->dim === null &&
+          $nodes[2]->expr instanceof Node\Expr\Variable &&
+          $nodes[2]->expr->name === $variableName
+        ) {
+            return [
+              new Node\Expr\Assign(
+                $nodes[2]->var,
+                new Node\Expr\Array_(
+                  [
+                    new Node\Expr\ArrayItem(
+                      $nodes[1]->expr,
+                      $nodes[1]->var->dim
+                    ),
+                  ]
+                )
+              ),
+            ];
         }
 
         // Descend into nested if/else structures.
