@@ -25,6 +25,7 @@ switch ($has_content) {
 <body>
 <h1><?php echo htmlspecialchars("Hello {$title} world") ?></h1>
 <?php
+echo fetchItem();
 $sum = 0;
 foreach ($xs as $x) {
   $sum += $x;
@@ -59,12 +60,12 @@ test2
 <ul>
 <?php while ($row = array_shift($rows)) { ?>
 <li><?php echo htmlspecialchars($row['title']) ?></li>
-<? } ?>
+<?php } ?>
 </ul>
 <ul>
 <?php do { ?>
 <li><?php echo htmlspecialchars($user['name']) ?></li>
-<? } while ($user = array_shift($users)) ?>
+<?php } while ($user = array_shift($users)) ?>
 </ul>
 <?php for ($i = 0; $i < 10; $i++) { ?>
 aap<?php echo (int)$i ?>test

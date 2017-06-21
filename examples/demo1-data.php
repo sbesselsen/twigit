@@ -1,4 +1,10 @@
 <?php
+if (!function_exists('fetchItem')) {
+    function fetchItem()
+    {
+        return 10;
+    }
+}
 $xs = [1, 2, 3];
 $title = '<aap>';
 $scripts = array('src/1.js', 'src/2.js');
