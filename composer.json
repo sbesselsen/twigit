@@ -3,7 +3,7 @@
     "description": "Convert PHP templates to Twig",
     "type": "library",
     "require": {
-        "nikic/php-parser": "^2.1"
+        "nikic/php-parser": "dev-master"
     },
     "autoload": {
         "psr-4": {
